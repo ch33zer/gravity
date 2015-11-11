@@ -267,7 +267,7 @@
 					}
 					var new_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 					new_coords.sub(start_mouse_world_coords);
-					if (!is_dragging && new_coords.lengthSq() > 10000) {
+					if (!is_dragging && new_coords.lengthSq() > 1000) {
 						is_dragging = true;
 						start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 						return;
