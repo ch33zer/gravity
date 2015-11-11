@@ -250,6 +250,7 @@
 				$("canvas").mousedown(function(e) {
 					switch (e.which) {
 						case 1:
+							e.preventDefault();
 							mouse_down = true;
 							start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 							break;
