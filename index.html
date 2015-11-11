@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<title>GRAVITY</title>
+		<style>
+			body { margin: 0; background-color: black; overflow: hidden; font-family: "Trebuchet MS", "Helvetica", "Arial",  "Verdana", "sans-serif";}
+			canvas { width: 100%; height: 100% }
+			#controls {
+				position: absolute;
+				background-color: gray;
+				border-radius: 2px;
+				width: 100%;
+				bottom: -2px;
+				display:flex;
+				align-items:center
+			}
+			#slider {
+				display: inline-block;
+				margin: 10px;
+				width: 10%;
+			}
+			#particle_size {
+				
+			}
+			.headerDivider {
+				border-left:1px solid #38546d; 
+				border-right:1px solid #16222c;
+				height:15px;
+				margin-left:5px;
+				margin-right:5px;
+			}
+		</style>
+		<link rel="stylesheet" href="jquery-ui.css" />
+		<script src="jquery-1.11.3.js"></script>
+		<script src="jquery-ui.js"></script>
+	</head>
+	<body>
+		<script src="three.min.js"></script>
+		<script>
+			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, spheres, grid;
+			var SIZE = {
+				LARGE: 30,
+				MEDIUM: 20,
+				SMALL: 10,
+			};
+			var G = 6.67408e-11;
+			function makeSphere(x, y, size) {
+				var geometry = new THREE.SphereGeometry(size, 32, 32);
+				var material = new THREE.MeshPhongMaterial( {color: 0xffff00, specular: 0xffffff, shininess: 50} );
+				var sphere = new THREE.Mesh( geometry, material );
+				sphere.radius = size;
+				sphere.velocity = new THREE.Vector3();
+				sphere.acceleration = new THREE.Vector3();
+				sphere.translateX(x);
+				sphere.translateY(y);
+				sphere.translateZ(-1);
+				spheres.push(sphere);
+				scene.add(sphere);
+				sphere.debugString = function() {
+					console.log("Sphere<position:", sphere.position, ",velocity:",sphere.velocity, ",acceleration:", sphere.acceleration, ">");
+				};
+				return sphere;
+			};
+			function makeSphereFromCoords(coords, size) {
+				return makeSphere(coords.x, coords.y, size);
+			}
+			function onWindowResize() {
+				canvas_width = window.innerWidth;
+				canvas_height = window.innerHeight;
+				aspect_ratio = canvas_width / canvas_height;
+				view_width = 1000;
+				view_height = view_width / aspect_ratio;
+				camera.top = view_height / 2;
+				camera.bottom = -view_height / 2;
+				camera.updateProjectionMatrix();
+				renderer.setSize(canvas_width, canvas_height);
+				scene.remove(grid);
+				grid = makeGrid();
+				scene.add(grid);
+
+			};
+			function massFromRadius(sphere) {
+				var density = 1000000;
+				return 4/3.0 * Math.PI * sphere.radius * sphere.radius * sphere.radius * density;
+			};
+			function moveSpheres(delta) {
+				var to_remove = Object.create(null);
+				var to_add = [];
+				function scheduleAdd(x, y, size) {
+					to_add.push({x: x, y: y, size: size})
+				};
+				function scheduleRemoval(idx) {
+					to_remove[idx] = true;
+				};
+				for (var i = 0; i < spheres.length; i++) {
+					var curr_sphere = spheres[i];
+					// curr_sphere.debugString();
+					if (i in to_remove) {
+						continue;
+					}
+					if (i === 0) {
+						curr_sphere.acceleration.set(0, 0, 0);
+					}
+					if (Math.abs(curr_sphere.position.x) > 10000 ||
+						Math.abs(curr_sphere.position.y) > 10000) {
+						console.log('removing');
+						scheduleRemoval(i);
+					}
+					var mass1 = massFromRadius(curr_sphere);
+					for (var j = i + 1; j < spheres.length; j++) {
+						var other_sphere = spheres[j];
+						var mass2 = massFromRadius(other_sphere);
+						if (i == 0) {
+							other_sphere.acceleration.set(0, 0, 0);
+						}
+						var seperating_dist_squared = curr_sphere.position.distanceToSquared(other_sphere.position);
+						if (seperating_dist_squared < Math.pow(curr_sphere.radius + other_sphere.radius, 2)) {
+							var remove_other = true;
+							if (curr_sphere.radius < other_sphere.radius) {
+								remove_other = false;
+							}
+							if (curr_sphere.radius === other_sphere.radius) {
+								var curr_velocity = curr_sphere.velocity.length();
+								var other_velocity = other_sphere.velocity.length();
+								if (curr_velocity < other_velocity) {
+									remove_other = false;
+								}																	
+							}
+							scheduleRemoval(remove_other ? j : i);
+							continue;
+						}
+						var F = G * mass1 * mass2 / seperating_dist_squared;
+						var direction = new THREE.Vector3();
+						direction.copy(other_sphere.position);
+						direction.sub(curr_sphere.position);
+						direction.normalize();
+						curr_sphere.acceleration.addScaledVector(direction, F / mass1)
+						direction.negate();
+						other_sphere.acceleration.addScaledVector(direction, F / mass2)
+					}
+					curr_sphere.position.addScaledVector(curr_sphere.velocity, delta).addScaledVector(curr_sphere.acceleration, .5 * delta * delta);
+					curr_sphere.velocity.addScaledVector(curr_sphere.acceleration, delta);
+				}
+				for (var idx in to_remove) {
+					scene.remove(spheres[idx])
+					spheres.splice(idx, 1);
+				}
+				for (var i = 0; i < to_add.length; i++) {
+					var addition = to_add[i];
+					makeSphere(addition.x, addition.y, addition.size);
+				}
+			};
+			
+			function makeGrid() {
+				var geometry = new THREE.Geometry();
+				var material = new THREE.LineBasicMaterial( { color: 0xFFFFFF, opacity: 1 } );
+				var size = Math.max(view_height, view_width) / 2;
+				var size = size | 0;
+				var density = 10;
+				var step = size * 2 / density;
+				step = step | 0;
+				size += step;
+				for ( var i = - size; i <= size; i += step ) {
+					geometry.vertices.push(new THREE.Vector3(-size, i, -100));
+					geometry.vertices.push(new THREE.Vector3(size, i, -100));
+
+					geometry.vertices.push( new THREE.Vector3( i, -size, -100) );
+					geometry.vertices.push( new THREE.Vector3( i, size, -100) );
+				}
+				var line = new THREE.LineSegments( geometry, material);
+				line.step = step;
+				return line;
+			};
+			
+			function main() {
+				$("#slider").slider({min: SIZE.SMALL,
+									 max: SIZE.LARGE,
+									 value:SIZE.MEDIUM,
+									 slide: function(e, ui) {
+										$("#particle_size").val(ui.value);
+									}});
+				scene = new THREE.Scene();
+				canvas_width = window.innerWidth;
+				canvas_height = window.innerHeight;
+				aspect_ratio = canvas_width / canvas_height;
+				spheres = [];
+				view_width = 1000;
+				view_height = view_width / aspect_ratio;
+				camera = new THREE.OrthographicCamera( -view_width / 2, view_width / 2, view_height / 2, -view_height / 2, -1000, 1000 );				
+				renderer = new THREE.WebGLRenderer( {antialias: true} );
+				renderer.setSize( canvas_width, canvas_height );
+				renderer.domElement.id = "canvas";
+				document.body.appendChild( renderer.domElement );
+				makeSphere(100, 100, SIZE.MEDIUM);
+				grid = makeGrid();
+				scene.add(grid);
+
+				var light = new THREE.DirectionalLight( 0xffffff, .5 );
+				light.position.set(1,1,-1);
+				scene.add( light );
+				light = new THREE.AmbientLight( 0x404040 );
+				scene.add(light);
+				var mouse_down = false;
+				var is_dragging = false;
+				var start_mouse_world_coords;
+				var start_cam_pos = new THREE.Vector3();
+				
+				function pageCoordToWorldCoord(x, y) {
+					var world_coords = new THREE.Vector3(((x / canvas_width) * view_width) - view_width / 2, ((-y / canvas_height) * view_height) + view_height / 2, 0);
+					world_coords.add(camera.position);
+					return world_coords;
+				};
+				$("canvas").mousedown(function(e) {
+					mouse_down = true;
+					start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+					start_cam_pos.copy(camera.position)
+				})
+				.mousemove(function(e) {
+					if (!mouse_down) {
+						return;
+					}
+					var new_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+					new_coords.sub(start_mouse_world_coords);
+					if (is_dragging || new_coords.lengthSq() > 1000) {
+						is_dragging = true;
+						new_coords.negate();
+						camera.position.add(new_coords);
+						grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
+						grid.position.setY(((camera.position.y / grid.step) | 0) * grid.step);
+					}
+				 })
+				.mouseup(function(e) {
+					if (!mouse_down) {
+						return;
+					}
+					var was_dragging = is_dragging;
+					mouse_down = false;
+					is_dragging = false;
+					if (was_dragging) {
+						;
+					} else {
+						makeSphereFromCoords(pageCoordToWorldCoord(e.pageX, e.pageY), parseInt($("#particle_size").val(), 10));
+					}
+				});
+				$(window).resize(onWindowResize);
+				var last_time = Date.now();
+				function render() {
+					requestAnimationFrame( render );
+					var new_time = Date.now();
+					moveSpheres(new_time - last_time);
+					last_time = new_time;
+					renderer.render(scene, camera );
+				}
+				render();
+			};
+			$(main)
+		</script>
+		<div id="controls">
+			<span>Particle Size</span>
+			<div id="slider"></div>
+			<input id="particle_size" type="text" size="1" value="20">
+			<div class="headerDivider"></div>
+		</div>
+	</body>
+</html>
