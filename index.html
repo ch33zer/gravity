@@ -42,12 +42,12 @@
 				SMALL: 10,
 			};
 			var G = 6.67408e-11;
-			function makeSphere(x, y, size) {
+			function makeSphere(x, y, size, vel) {
 				var geometry = new THREE.SphereGeometry(size, 32, 32);
 				var material = new THREE.MeshPhongMaterial( {color: 0xffff00, specular: 0xffffff, shininess: 50} );
 				var sphere = new THREE.Mesh( geometry, material );
 				sphere.radius = size;
-				sphere.velocity = new THREE.Vector3();
+				sphere.velocity = vel || new THREE.Vector3();
 				sphere.acceleration = new THREE.Vector3();
 				sphere.translateX(x);
 				sphere.translateY(y);
@@ -61,6 +61,9 @@
 			};
 			function makeSphereFromCoords(coords, size) {
 				return makeSphere(coords.x, coords.y, size);
+			}
+			function makeSphereFromCoordsWithVelocity(coords, size, velocity){
+				return makeSphere(coords.x, coords.y, size, velocity);
 			}
 			function onWindowResize() {
 				canvas_width = window.innerWidth;
@@ -206,8 +209,11 @@
 				light = new THREE.AmbientLight( 0x404040 );
 				scene.add(light);
 				var mouse_down = false;
+				var right_down = false;
 				var is_dragging = false;
 				var start_mouse_world_coords;
+				var start_right_world_coords;
+				var end_right_world_coords;
 				var start_cam_pos = new THREE.Vector3();
 				
 				function pageCoordToWorldCoord(x, y) {
@@ -216,9 +222,19 @@
 					return world_coords;
 				};
 				$("canvas").mousedown(function(e) {
-					mouse_down = true;
-					start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
-					start_cam_pos.copy(camera.position)
+					switch (e.which) {
+						case 1:
+							mouse_down = true;
+							start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+							start_cam_pos.copy(camera.position);
+							break;
+						case 2:
+							e.preventDefault();
+							right_down = true;
+							start_right_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+							break;
+						default:
+					}
 				})
 				.mousemove(function(e) {
 					if (!mouse_down) {
@@ -235,16 +251,27 @@
 					}
 				 })
 				.mouseup(function(e) {
-					if (!mouse_down) {
-						return;
-					}
-					var was_dragging = is_dragging;
-					mouse_down = false;
-					is_dragging = false;
-					if (was_dragging) {
-						;
-					} else {
-						makeSphereFromCoords(pageCoordToWorldCoord(e.pageX, e.pageY), parseInt($("#particle_size").val(), 10));
+					switch (e.which) {
+						case 1:
+							var was_dragging = is_dragging;
+							mouse_down = false;
+							is_dragging = false;
+							if (was_dragging) {
+								;
+							} else {
+								makeSphereFromCoords(pageCoordToWorldCoord(e.pageX, e.pageY), parseInt($("#particle_size").val(), 10));
+							}
+							break;
+						case 2:
+							right_down = false;
+							var end_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+							end_coords.sub(start_right_world_coords); // create velocity vector
+							end_coords.multiplyScalar(0.005); // scale velocity to human visable speed
+							makeSphereFromCoordsWithVelocity(pageCoordToWorldCoord(e.pageX, e.pageY),
+											 parseInt($("#particle_size").val(), 10),
+											 end_coords);
+							break;
+						default:
 					}
 				});
 				$(window).resize(onWindowResize);
