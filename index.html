@@ -15,13 +15,10 @@
 				display:flex;
 				align-items:center
 			}
-			#slider {
+			.ui-slider {
 				display: inline-block;
 				margin: 10px;
 				width: 10%;
-			}
-			#particle_size {
-				
 			}
 			.headerDivider {
 				border-left:1px solid #38546d; 
@@ -85,6 +82,7 @@
 				return 4/3.0 * Math.PI * sphere.radius * sphere.radius * sphere.radius * density;
 			};
 			function moveSpheres(delta) {
+				var gravity_multiplier = parseInt($("#gravity_multiplier").val(), 10);
 				var to_remove = Object.create(null);
 				var to_add = [];
 				function scheduleAdd(x, y, size) {
@@ -130,7 +128,7 @@
 							scheduleRemoval(remove_other ? j : i);
 							continue;
 						}
-						var F = G * mass1 * mass2 / seperating_dist_squared;
+						var F = gravity_multiplier * G * mass1 * mass2 / seperating_dist_squared;
 						var direction = new THREE.Vector3();
 						direction.copy(other_sphere.position);
 						direction.sub(curr_sphere.position);
@@ -154,7 +152,7 @@
 			
 			function makeGrid() {
 				var geometry = new THREE.Geometry();
-				var material = new THREE.LineBasicMaterial( { color: 0xFFFFFF, opacity: 1 } );
+				var material = new THREE.LineBasicMaterial( { color: 0x2C2C2C, opacity: .1 } );
 				var size = Math.max(view_height, view_width) / 2;
 				var size = size | 0;
 				var density = 10;
@@ -174,12 +172,18 @@
 			};
 			
 			function main() {
-				$("#slider").slider({min: SIZE.SMALL,
-									 max: SIZE.LARGE,
-									 value:SIZE.MEDIUM,
-									 slide: function(e, ui) {
-										$("#particle_size").val(ui.value);
-									}});
+				$("#size_slider").slider({min: SIZE.SMALL,
+										  max: SIZE.LARGE,
+										  value:SIZE.MEDIUM,
+										  slide: function(e, ui) {
+										 	$("#particle_size").val(ui.value);
+										 }});
+				$("#gravity_multiplier_slider").slider({min: -10,
+										  max: 10,
+										  value: 1,
+										  slide: function(e, ui) {
+										 	$("#gravity_multiplier").val(ui.value);
+										 }});
 				scene = new THREE.Scene();
 				canvas_width = window.innerWidth;
 				canvas_height = window.innerHeight;
@@ -258,8 +262,12 @@
 		</script>
 		<div id="controls">
 			<span>Particle Size</span>
-			<div id="slider"></div>
+			<div id="size_slider"></div>
 			<input id="particle_size" type="text" size="1" value="20">
+			<div class="headerDivider"></div>
+			<span>Gravity Multiplier</span>
+			<div id="gravity_multiplier_slider"></div>
+			<input id="gravity_multiplier" type="text" size="1" value="1">
 			<div class="headerDivider"></div>
 		</div>
 	</body>
