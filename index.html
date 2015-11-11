@@ -242,7 +242,6 @@
 				var start_mouse_world_coords;
 				var start_right_world_coords;
 				var end_right_world_coords;
-				var start_cam_pos = new THREE.Vector3();
 				
 				function pageCoordToWorldCoord(x, y) {
 					var world_coords = new THREE.Vector3(((x / canvas_width) * view_width) - view_width / 2, ((-y / canvas_height) * view_height) + view_height / 2, 0);
@@ -252,9 +251,9 @@
 				$("canvas").mousedown(function(e) {
 					switch (e.which) {
 						case 1:
+							e.preventDefault();
 							mouse_down = true;
 							start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
-							start_cam_pos.copy(camera.position);
 							break;
 						case 2:
 							e.preventDefault();
@@ -270,8 +269,12 @@
 					}
 					var new_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 					new_coords.sub(start_mouse_world_coords);
-					if (is_dragging || new_coords.lengthSq() > 1000) {
+					if (!is_dragging && new_coords.lengthSq() > 1000) {
 						is_dragging = true;
+						start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+						return;
+					}
+					if (is_dragging) {
 						new_coords.negate();
 						camera.position.add(new_coords);
 						grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
