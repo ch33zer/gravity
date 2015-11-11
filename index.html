@@ -42,7 +42,6 @@
 				SMALL: 10,
 			};
 			var G = 6.67408e-11;
-<<<<<<< HEAD
 			function makeTrail(color, startpos, endpos) {
 				geometry = new THREE.Geometry();
 				geometry.vertices.push(new THREE.Vector3(startpos.x, startpos.y, startpos.z));
@@ -50,12 +49,10 @@
 				material = new THREE.LineBasicMaterial({ color: color, opacity: .1 });
 				return new THREE.LineSegments(geometry, material);
 			};
-			function makeSphere(x, y, size) {
-=======
 			function makeSphere(x, y, size, vel) {
->>>>>>> 778ac052696d146133e619ad968927fa58bcf785
+				var colour = Math.floor(Math.random() * 16777215);
 				var geometry = new THREE.SphereGeometry(size, 32, 32);
-				var material = new THREE.MeshPhongMaterial( {color: 0xffff00, specular: 0xffffff, shininess: 50} );
+				var material = new THREE.MeshPhongMaterial( {color: 0x132CA9 , specular: 0xffffff, shininess: 50} );
 				var sphere = new THREE.Mesh( geometry, material );
 				sphere.radius = size;
 				sphere.velocity = vel || new THREE.Vector3();
@@ -69,7 +66,7 @@
 				sphere.debugString = function() {
 					console.log("Sphere<position:", sphere.position, ",velocity:",sphere.velocity, ",acceleration:", sphere.acceleration, ">");
 				};
-				sphere.trail_color = Math.floor(Math.random() * 16777215);
+				sphere.trail_color = colour;
 				sphere.last_trail_pos = new THREE.Vector3();
 				sphere.last_trail_pos.copy(sphere.position);
 				return sphere;
@@ -129,7 +126,7 @@
 							other_sphere.acceleration.set(0, 0, 0);
 						}
 						var seperating_dist_squared = curr_sphere.position.distanceToSquared(other_sphere.position);
-						if (seperating_dist_squared < Math.pow(curr_sphere.radius + other_sphere.radius, 2)) {
+						if (seperating_dist_squared < Math.pow(curr_sphere.radius + other_sphere.radius, 2)*0.5) {
 							var remove_other = true;
 							if (curr_sphere.radius < other_sphere.radius) {
 								remove_other = false;
@@ -232,7 +229,7 @@
 				var light = new THREE.DirectionalLight( 0xffffff, 1 );
 				light.position.set(1,1, -1);
 				scene.add( light );
-				light = new THREE.AmbientLight( 0x202020 );
+				light = new THREE.AmbientLight( 0x404040 );
 				scene.add(light);
 				
 				makeSphere(100, 100, SIZE.MEDIUM);
@@ -298,7 +295,7 @@
 							var end_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 							end_coords.sub(start_right_world_coords); // create velocity vector
 							end_coords.multiplyScalar(0.005); // scale velocity to human visable speed
-							makeSphereFromCoordsWithVelocity(pageCoordToWorldCoord(e.pageX, e.pageY),
+							makeSphereFromCoordsWithVelocity(start_right_world_coords,
 											 parseInt($("#particle_size").val(), 10),
 											 end_coords);
 							break;
