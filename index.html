@@ -42,7 +42,6 @@
 				SMALL: 10,
 			};
 			var G = 6.67408e-11;
-<<<<<<< HEAD
 			function makeTrail(color, startpos, endpos) {
 				geometry = new THREE.Geometry();
 				geometry.vertices.push(new THREE.Vector3(startpos.x, startpos.y, startpos.z));
@@ -50,10 +49,7 @@
 				material = new THREE.LineBasicMaterial({ color: color, opacity: .1 });
 				return new THREE.LineSegments(geometry, material);
 			};
-			function makeSphere(x, y, size) {
-=======
 			function makeSphere(x, y, size, vel) {
->>>>>>> 778ac052696d146133e619ad968927fa58bcf785
 				var geometry = new THREE.SphereGeometry(size, 32, 32);
 				var material = new THREE.MeshPhongMaterial( {color: 0xffff00, specular: 0xffffff, shininess: 50} );
 				var sphere = new THREE.Mesh( geometry, material );
@@ -245,7 +241,6 @@
 				var start_mouse_world_coords;
 				var start_right_world_coords;
 				var end_right_world_coords;
-				var start_cam_pos = new THREE.Vector3();
 				
 				function pageCoordToWorldCoord(x, y) {
 					var world_coords = new THREE.Vector3(((x / canvas_width) * view_width) - view_width / 2, ((-y / canvas_height) * view_height) + view_height / 2, 0);
@@ -257,7 +252,6 @@
 						case 1:
 							mouse_down = true;
 							start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
-							start_cam_pos.copy(camera.position);
 							break;
 						case 2:
 							e.preventDefault();
@@ -273,8 +267,12 @@
 					}
 					var new_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 					new_coords.sub(start_mouse_world_coords);
-					if (is_dragging || new_coords.lengthSq() > 1000) {
+					if (!is_dragging && new_coords.lengthSq() > 10000) {
 						is_dragging = true;
+						start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+						return;
+					}
+					if (is_dragging) {
 						new_coords.negate();
 						camera.position.add(new_coords);
 						grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
