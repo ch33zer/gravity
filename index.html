@@ -15,6 +15,14 @@
 				display:flex;
 				align-items:center
 			}
+			#info_pane {
+				position: absolute;
+				background-color: gray;
+				border-radius: 2px;
+				top: -2px;
+				display:flex;
+				flex-direction: column
+			}
 			.ui-slider {
 				display: inline-block;
 				margin: 10px;
@@ -35,7 +43,7 @@
 	<body>
 		<script src="three.min.js"></script>
 		<script>
-			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, scaled_view_width, scaled_view_height, spheres, grid;
+			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, scaled_view_width, scaled_view_height, spheres, grid, clicked_sphere;
 			var SIZE = {
 				LARGE: 30,
 				MEDIUM: 20,
@@ -57,6 +65,8 @@
 				sphere.radius = size;
 				sphere.velocity = vel || new THREE.Vector3();
 				sphere.acceleration = new THREE.Vector3();
+				sphere.is_selected = false;
+				sphere.pinned = false;
 				sphere.trails = [];
 				sphere.translateX(x);
 				sphere.translateY(y);
@@ -81,9 +91,52 @@
 				for (var i = 0; i < spheres[idx].trails.length; ++i) {
 						scene.remove(spheres[idx].trails[i]);
 				}
+				if (spheres[idx].is_selected) {
+					unselectSelected();
+				}
 				scene.remove(spheres[idx])
 				spheres.splice(idx, 1);
 			};
+			function unselectSphere(sphere) {
+				sphere.is_selected = false;
+				sphere.material.color.setHex(0x132CA9);
+				if (clicked_sphere && clicked_sphere.uuid === sphere.uuid) {
+					$("#info_pane").toggle(false);
+				}
+			};
+			function unselectSelected() {
+				if (clicked_sphere) {
+					unselectSphere(clicked_sphere);
+					clicked_sphere = null;
+				}
+			};
+			function updatePinButtonText(is_pinned) {
+				if (is_pinned) {
+					$("#pin_button").text("Unpin");
+				}
+				else {
+					$("#pin_button").text("Pin");
+				}
+			};
+			function selectSphere(sphere) {
+				sphere.is_selected = true;
+				sphere.material.color.setHex(0xB00000);
+				$("#info_pane").toggle(true);
+				clicked_sphere = sphere;
+				updatePinButtonText(sphere.pinned);
+			};
+			function findSphereIdxByUUID(uuid) {
+				for (var i = 0; i < spheres.length; ++i) {
+					var curr_sphere = spheres[i];
+					if (curr_sphere.uuid == uuid) {
+						return i;
+					}
+				}
+				return -1;
+			};
+			function findSphereByUUID(uuid) {
+				return spheres[findSphereIdxByUUID(uuid)];
+			}
 			function replaceOldGrid() {
 				var new_grid = makeGrid();
 				new_grid.position.setX(((camera.position.x / new_grid.step) | 0) * new_grid.step);
@@ -108,6 +161,19 @@
 			function massFromRadius(sphere) {
 				var density = 1000000;
 				return 4/3.0 * Math.PI * sphere.radius * sphere.radius * sphere.radius * density;
+			};
+			function update(delta) {
+				moveSpheres(delta);
+				if (clicked_sphere && clicked_sphere.is_selected) {
+					function fmt(vec) {
+						return "(" + vec.x.toFixed(2) + "," + vec.y.toFixed(2) + ")";
+					}
+					
+					$("#selected_position").text(fmt(clicked_sphere.position));
+					$("#selected_velocity").text(fmt(clicked_sphere.velocity));
+					$("#selected_acceleration").text(fmt(clicked_sphere.acceleration));
+
+				}
 			};
 			function moveSpheres(delta) {
 				var gravity_multiplier = parseInt($("#gravity_multiplier").val(), 10);
@@ -159,8 +225,10 @@
 						direction.negate();
 						other_sphere.acceleration.addScaledVector(direction, F / mass2)
 					}
-					curr_sphere.position.addScaledVector(curr_sphere.velocity, delta).addScaledVector(curr_sphere.acceleration, .5 * delta * delta);
-					curr_sphere.velocity.addScaledVector(curr_sphere.acceleration, delta);
+					if (!curr_sphere.pinned) {
+						curr_sphere.position.addScaledVector(curr_sphere.velocity, delta).addScaledVector(curr_sphere.acceleration, .5 * delta * delta);
+						curr_sphere.velocity.addScaledVector(curr_sphere.acceleration, delta);
+					}
 					if (curr_sphere.last_trail_pos.distanceToSquared(curr_sphere.position) > 5) {
 						var start = new THREE.Vector3();
 						start.copy(curr_sphere.last_trail_pos);
@@ -223,6 +291,23 @@
 						removeSphereByIdx(spheres.length - 1);
 					};
 				});
+				$("#unselect_button").click(function() {
+					unselectSelected();
+				});
+				$("#pin_button").click(function() {
+					if (!clicked_sphere.pinned) {
+						clicked_sphere.pinned = true;
+						clicked_sphere.velocity.set(0, 0, 0);
+						clicked_sphere.acceleration.set(0, 0, 0);
+					}
+					else {
+						clicked_sphere.pinned = false;
+					}
+					updatePinButtonText(clicked_sphere.pinned);
+				});
+				$("#delete_button").click(function() {
+					removeSphereByIdx(findSphereIdxByUUID(clicked_sphere.uuid));
+				});
 				scene = new THREE.Scene();
 				canvas_width = window.innerWidth;
 				canvas_height = window.innerHeight;
@@ -258,7 +343,20 @@
 				var start_mouse_world_coords;
 				var start_right_world_coords;
 				var end_right_world_coords;
-				
+				// "" if not started in a sphere.
+				var starting_sphere_uuid;
+				function findContainingSphereUUID(world_coords) {
+					var target_point = new THREE.Vector3();
+					target_point.copy(world_coords);
+					target_point.setZ(-1);
+					for (var i = 0; i < spheres.length; i++) {
+						var curr_sphere = spheres[i];
+						if (target_point.distanceTo(curr_sphere.position) < curr_sphere.radius) {
+							return curr_sphere.uuid;
+						}
+					}
+					return "";
+				};
 				function pageCoordToWorldCoord(x, y) {
 					var world_coords = new THREE.Vector3(((x / canvas_width) * scaled_view_width) - scaled_view_width / 2, ((-y / canvas_height) * scaled_view_height) + scaled_view_height / 2, 0);
 					world_coords.add(camera.position);
@@ -283,6 +381,7 @@
 							e.preventDefault();
 							mouse_down = true;
 							start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+							starting_sphere_uuid = findContainingSphereUUID(start_mouse_world_coords);
 							break;
 						case 2:
 							e.preventDefault();
@@ -314,12 +413,27 @@
 					switch (e.which) {
 						case 1:
 							var was_dragging = is_dragging;
+							var old_starting_sphere_uuid = starting_sphere_uuid;
+							starting_sphere_uuid = "";
 							mouse_down = false;
 							is_dragging = false;
+
 							if (was_dragging) {
 								;
 							} else {
-								makeSphereFromCoords(pageCoordToWorldCoord(e.pageX, e.pageY), parseInt($("#particle_size").val(), 10));
+								var world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+								if (old_starting_sphere_uuid != "" && old_starting_sphere_uuid === findContainingSphereUUID(world_coords)) {
+									if (clicked_sphere && old_starting_sphere_uuid == clicked_sphere.uuid) {
+										unselectSelected();
+									} else {
+										unselectSelected();
+										clicked_sphere = findSphereByUUID(old_starting_sphere_uuid);
+										selectSphere(clicked_sphere);
+									}
+								}
+								else {
+									makeSphereFromCoords(world_coords, parseInt($("#particle_size").val(), 10));
+								}
 							}
 							break;
 						case 2:
@@ -339,7 +453,7 @@
 				function render() {
 					requestAnimationFrame( render );
 					var new_time = Date.now();
-					moveSpheres(new_time - last_time);
+					update(new_time - last_time);
 					last_time = new_time;
 					renderer.render(scene, camera );
 				}
@@ -347,6 +461,14 @@
 			};
 			$(main);
 		</script>
+		<div id="info_pane" style="display:none">
+			<div>Position: <span id="selected_position"></span></div>
+			<div>Velocity: <span id="selected_velocity"></span></div>
+			<div>Acceleration: <span id="selected_acceleration"></span></div>
+			<button id="unselect_button">Unselect</button>
+			<button id="pin_button">Pin</button>
+			<button id="delete_button">Delete</button>
+		</div>
 		<div id="controls">
 			<span>Particle Size</span>
 			<div id="size_slider"></div>
