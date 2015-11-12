@@ -77,6 +77,13 @@
 			function makeSphereFromCoordsWithVelocity(coords, size, velocity){
 				return makeSphere(coords.x, coords.y, size, velocity);
 			};
+			function removeSphereByIdx(idx) {
+				for (var i = 0; i < spheres[idx].trails.length; ++i) {
+						scene.remove(spheres[idx].trails[i]);
+				}
+				scene.remove(spheres[idx])
+				spheres.splice(idx, 1);
+			};
 			function replaceOldGrid() {
 				var new_grid = makeGrid();
 				new_grid.position.setX(((camera.position.x / new_grid.step) | 0) * new_grid.step);
@@ -169,11 +176,7 @@
 					}
 				}
 				for (var idx in to_remove) {
-					for (var i = 0; i < spheres[idx].trails.length; ++i) {
-						scene.remove(spheres[idx].trails[i]);
-					}
-					scene.remove(spheres[idx])
-					spheres.splice(idx, 1);
+					removeSphereByIdx(idx);
 				}
 				for (var i = 0; i < to_add.length; i++) {
 					var addition = to_add[i];
@@ -214,6 +217,12 @@
 										  slide: function(e, ui) {
 										 	$("#gravity_multiplier").val(ui.value);
 										 }});
+				$("#clear_button").click(function() {
+					while (spheres.length != 0) {
+						// Marginally faster to remove from end? IDK.
+						removeSphereByIdx(spheres.length - 1);
+					};
+				});
 				scene = new THREE.Scene();
 				canvas_width = window.innerWidth;
 				canvas_height = window.innerHeight;
@@ -264,7 +273,6 @@
 					else{
 						camera.zoom *= 1 - scroll;
 					}
-					console.log(camera.zoom);
 					camera.updateProjectionMatrix();
 					camera.updateScaledViewSize();
 					replaceOldGrid();
@@ -348,6 +356,7 @@
 			<div id="gravity_multiplier_slider"></div>
 			<input id="gravity_multiplier" type="text" size="1" value="1">
 			<div class="headerDivider"></div>
+			<button id="clear_button">Clear</button>
 		</div>
 	</body>
 </html>
