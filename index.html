@@ -35,7 +35,7 @@
 	<body>
 		<script src="three.min.js"></script>
 		<script>
-			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, spheres, grid;
+			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, scaled_view_width, scaled_view_height, spheres, grid;
 			var SIZE = {
 				LARGE: 30,
 				MEDIUM: 20,
@@ -76,7 +76,15 @@
 			}
 			function makeSphereFromCoordsWithVelocity(coords, size, velocity){
 				return makeSphere(coords.x, coords.y, size, velocity);
-			}
+			};
+			function replaceOldGrid() {
+				var new_grid = makeGrid();
+				new_grid.position.setX(((camera.position.x / new_grid.step) | 0) * new_grid.step);
+				new_grid.position.setY(((camera.position.y / new_grid.step) | 0) * new_grid.step);
+				scene.remove(grid);
+				scene.add(new_grid);
+				grid = new_grid;
+			};
 			function onWindowResize() {
 				canvas_width = window.innerWidth;
 				canvas_height = window.innerHeight;
@@ -86,10 +94,9 @@
 				camera.top = view_height / 2;
 				camera.bottom = -view_height / 2;
 				camera.updateProjectionMatrix();
+				camera.updateScaledViewSize();
 				renderer.setSize(canvas_width, canvas_height);
-				scene.remove(grid);
-				grid = makeGrid();
-				scene.add(grid);
+				replaceOldGrid();
 			};
 			function massFromRadius(sphere) {
 				var density = 1000000;
@@ -112,11 +119,6 @@
 					}
 					if (i === 0) {
 						curr_sphere.acceleration.set(0, 0, 0);
-					}
-					if (Math.abs(curr_sphere.position.x) > 10000 ||
-						Math.abs(curr_sphere.position.y) > 10000) {
-						console.log('removing');
-						scheduleRemoval(i);
 					}
 					var mass1 = massFromRadius(curr_sphere);
 					for (var j = i + 1; j < spheres.length; j++) {
@@ -182,18 +184,17 @@
 			function makeGrid() {
 				var geometry = new THREE.Geometry();
 				var material = new THREE.LineBasicMaterial({ color: 0x2C2C2C, opacity: .1 });
-				var size = Math.max(view_height, view_width) / 2;
-				var size = size | 0;
-				var density = 10;
-				var step = size * 2 / density;
-				step = step | 0;
-				size += step;
-				for ( var i = - size; i <= size; i += step ) {
+				var size = Math.max(scaled_view_height, scaled_view_width) / 2;
+				var max_grid_lines_on_screen = 20;
+				var step = Math.max(100, ((size * 2 / 100 / max_grid_lines_on_screen) | 0) * 100);
+				size = ((size / step) | 0) * step;
+				size += 2 * step;
+				for (var i = - size; i <= size; i += step) {
 					geometry.vertices.push(new THREE.Vector3(-size, i, -100));
 					geometry.vertices.push(new THREE.Vector3(size, i, -100));
 
-					geometry.vertices.push( new THREE.Vector3( i, -size, -100) );
-					geometry.vertices.push( new THREE.Vector3( i, size, -100) );
+					geometry.vertices.push(new THREE.Vector3( i, -size, -100));
+					geometry.vertices.push(new THREE.Vector3( i, size, -100));
 				}
 				var line = new THREE.LineSegments( geometry, material);
 				line.step = step;
@@ -220,7 +221,13 @@
 				spheres = [];
 				view_width = 1000;
 				view_height = view_width / aspect_ratio;
+				scaled_view_width = view_width;
+				scaled_view_height = view_height;
 				camera = new THREE.OrthographicCamera( -view_width / 2, view_width / 2, view_height / 2, -view_height / 2, -1000, 1000 );				
+				camera.updateScaledViewSize = function() {
+					scaled_view_height = view_height / camera.zoom;
+					scaled_view_width = view_width / camera.zoom;
+				};
 				renderer = new THREE.WebGLRenderer( {antialias: true} );
 				renderer.setSize( canvas_width, canvas_height );
 				renderer.domElement.id = "canvas";
@@ -244,10 +251,24 @@
 				var end_right_world_coords;
 				
 				function pageCoordToWorldCoord(x, y) {
-					var world_coords = new THREE.Vector3(((x / canvas_width) * view_width) - view_width / 2, ((-y / canvas_height) * view_height) + view_height / 2, 0);
+					var world_coords = new THREE.Vector3(((x / canvas_width) * scaled_view_width) - scaled_view_width / 2, ((-y / canvas_height) * scaled_view_height) + scaled_view_height / 2, 0);
 					world_coords.add(camera.position);
 					return world_coords;
 				};
+				$("canvas").bind('mousewheel DOMMouseScroll', function(e) {
+					var delta = Math.max(-1, Math.min(1, (e.originalEvent.wheelDelta || -e.originalEvent.detail)));
+					var scroll = .2;
+					if(delta > 0) {
+						camera.zoom *= 1 + scroll;
+					}
+					else{
+						camera.zoom *= 1 - scroll;
+					}
+					console.log(camera.zoom);
+					camera.updateProjectionMatrix();
+					camera.updateScaledViewSize();
+					replaceOldGrid();
+				});
 				$("canvas").mousedown(function(e) {
 					switch (e.which) {
 						case 1:
