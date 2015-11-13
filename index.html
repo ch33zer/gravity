@@ -1,23 +1,39 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 	<head>
 		<meta charset=utf-8>
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title>GRAVITY</title>
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ==" crossorigin="anonymous">
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap-theme.min.css" integrity="sha384-aUGj/X2zp5rLCbBxumKTCw2Z50WgIr1vs/PFN4praOTvYXWlVyh2UtNUU0KAUhAX" crossorigin="anonymous">
 		<style>
-			body { margin: 0; background-color: black; overflow: hidden; font-family: "Trebuchet MS", "Helvetica", "Arial",  "Verdana", "sans-serif";}
+			body { margin: 0; background-color: black; overflow: hidden;}
 			canvas { width: 100%; height: 100% }
+			button { margin: 2px }
+			.white_black_outline {
+				color: white;
+				text-shadow:
+				   -1px -1px 0 #000,
+					1px -1px 0 #000,
+					-1px 1px 0 #000,
+					1px 1px 0 #000;  
+			}
 			#controls {
 				position: absolute;
-				background-color: gray;
-				border-radius: 2px;
 				width: 100%;
-				bottom: -2px;
+				bottom: 0px;
+				display:flex;
+				align-items:center
+			}
+			#camera_info_pane {
+				position: absolute;
+				bottom: 40px;
 				display:flex;
 				align-items:center
 			}
 			#info_pane {
 				position: absolute;
-				background-color: gray;
 				border-radius: 2px;
 				top: -2px;
 				display:flex;
@@ -29,21 +45,21 @@
 				width: 10%;
 			}
 			.headerDivider {
-				border-left:1px solid #38546d; 
-				border-right:1px solid #16222c;
-				height:15px;
+				border-left:1px solid #ccc; 
+				border-right:1px solid #ccc;
+				height:25px;
 				margin-left:5px;
 				margin-right:5px;
 			}
 		</style>
 		<link rel="stylesheet" href="jquery-ui.css" />
-		<script src="jquery-1.11.3.js"></script>
-		<script src="jquery-ui.js"></script>
 	</head>
-	<body>
+	<body oncontextmenu="return false;">
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+		<script src="jquery-ui.js"></script>
 		<script src="three.min.js"></script>
 		<script>
-			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, scaled_view_width, scaled_view_height, spheres, grid, clicked_sphere;
+			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, scaled_view_width, scaled_view_height, spheres, grid, clicked_sphere, camera_following_sphere;
 			var SIZE = {
 				LARGE: 30,
 				MEDIUM: 20,
@@ -66,6 +82,7 @@
 				sphere.velocity = vel || new THREE.Vector3();
 				sphere.acceleration = new THREE.Vector3();
 				sphere.is_selected = false;
+				sphere.camera_pinned = false;
 				sphere.pinned = false;
 				sphere.trails = [];
 				sphere.translateX(x);
@@ -118,12 +135,21 @@
 					$("#pin_button").text("Pin");
 				}
 			};
+			function updateFollowButtonText(is_following) {
+				if (is_following) {
+					$("#follow_button").text("Unfollow");
+				}
+				else {
+					$("#follow_button").text("Follow");
+				}
+			};
 			function selectSphere(sphere) {
 				sphere.is_selected = true;
 				sphere.material.color.setHex(0xB00000);
 				$("#info_pane").toggle(true);
 				clicked_sphere = sphere;
 				updatePinButtonText(sphere.pinned);
+				updateFollowButtonText(sphere.camera_pinned);
 			};
 			function findSphereIdxByUUID(uuid) {
 				for (var i = 0; i < spheres.length; ++i) {
@@ -137,6 +163,16 @@
 			function findSphereByUUID(uuid) {
 				return spheres[findSphereIdxByUUID(uuid)];
 			}
+			function moveCameraRelative(new_coords_rel) {
+				camera.position.add(new_coords_rel);
+				grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
+				grid.position.setY(((camera.position.y / grid.step) | 0) * grid.step);
+			};
+			function moveCameraAbsolute(new_coords) {
+				camera.position.copy(new_coords);
+				grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
+				grid.position.setY(((camera.position.y / grid.step) | 0) * grid.step);
+			};
 			function replaceOldGrid() {
 				var new_grid = makeGrid();
 				new_grid.position.setX(((camera.position.x / new_grid.step) | 0) * new_grid.step);
@@ -164,15 +200,65 @@
 			};
 			function update(delta) {
 				moveSpheres(delta);
-				if (clicked_sphere && clicked_sphere.is_selected) {
-					function fmt(vec) {
-						return "(" + vec.x.toFixed(2) + "," + vec.y.toFixed(2) + ")";
+				function fmt_num(num) {
+					var is_negative = num < 0;
+					var rep = num.toFixed(2);
+					if (num !== 0 && (rep === "0.00" || rep === "-0.00")) {
+						rep = "<0.01";
+					}
+					if (rep.length < 8) {
+						var pad = "        ";
+						rep = pad.substring(0, pad.length - rep.length) + rep;
 					}
 					
-					$("#selected_position").text(fmt(clicked_sphere.position));
-					$("#selected_velocity").text(fmt(clicked_sphere.velocity));
-					$("#selected_acceleration").text(fmt(clicked_sphere.acceleration));
+					return rep;
+				};
+				function fmt_vec(vec) {
+					return "(" + fmt_num(vec.x) + "," + fmt_num(vec.y) + ")";
+				};
+				$("#camera_position").text(fmt_vec(camera.position));
+				$("#camera_zoom").text(fmt_num(camera.zoom));
 
+				if (clicked_sphere && clicked_sphere.is_selected) {
+					function angle_from_up(vec) {
+						var up = new THREE.Vector3(0,1,0);
+						var normalized = new THREE.Vector3();
+						normalized.copy(vec);
+						normalized.setZ(0);
+						normalized.normalize();
+
+						var theta = normalized.dot(up); // Both lengths are 1, no need to normalize.
+						var rot = Math.acos(THREE.Math.clamp(theta, -1, 1));
+						if (normalized.x < 0) {
+							rot = Math.PI * 2 - rot;
+						}
+						return rot;
+					};
+					$("#selected_size").text(clicked_sphere.radius);
+					$("#selected_position").text(fmt_vec(clicked_sphere.position));
+					var vel_len = clicked_sphere.velocity.length();
+					if (vel_len === 0) {
+						$("#selected_velocity_dir").toggle(false);
+					}
+					else {
+						$("#selected_velocity_dir").toggle(true);
+						$("#selected_velocity_dir").css({transform: 'rotateZ(' + (angle_from_up(clicked_sphere.velocity)) + 'rad)'});
+					}
+					$("#selected_velocity").text(fmt_num(vel_len));
+					var acc_len = clicked_sphere.acceleration.length();
+					if (acc_len === 0) {
+						$("#selected_acceleration_dir").toggle(false);
+					}
+					else {
+						$("#selected_acceleration_dir").toggle(true);
+						$("#selected_acceleration_dir").css({transform: 'rotateZ(' + (angle_from_up(clicked_sphere.acceleration)) + 'rad)'});
+					}
+					$("#selected_acceleration").text(fmt_num(clicked_sphere.acceleration.length()));
+
+
+				}
+				if (camera_following_sphere && camera_following_sphere.camera_pinned) {
+					moveCameraAbsolute(camera_following_sphere.position);
 				}
 			};
 			function moveSpheres(delta) {
@@ -203,15 +289,17 @@
 						var seperating_dist_squared = curr_sphere.position.distanceToSquared(other_sphere.position);
 						if (seperating_dist_squared < Math.pow(curr_sphere.radius + other_sphere.radius, 2)*0.5) {
 							var remove_other = true;
-							if (curr_sphere.radius < other_sphere.radius) {
-								remove_other = false;
-							}
-							if (curr_sphere.radius === other_sphere.radius) {
-								var curr_velocity = curr_sphere.velocity.length();
-								var other_velocity = other_sphere.velocity.length();
-								if (curr_velocity < other_velocity) {
+							if (!curr_sphere.pinned) {
+								if (curr_sphere.radius < other_sphere.radius) {
 									remove_other = false;
-								}																	
+								}
+								if (curr_sphere.radius === other_sphere.radius) {
+									var curr_velocity = curr_sphere.velocity.length();
+									var other_velocity = other_sphere.velocity.length();
+									if (curr_velocity < other_velocity) {
+										remove_other = false;
+									}																	
+								}
 							}
 							scheduleRemoval(remove_other ? j : i);
 							continue;
@@ -221,7 +309,9 @@
 						direction.copy(other_sphere.position);
 						direction.sub(curr_sphere.position);
 						direction.normalize();
-						curr_sphere.acceleration.addScaledVector(direction, F / mass1)
+						if (!curr_sphere.pinned) {
+							curr_sphere.acceleration.addScaledVector(direction, F / mass1)
+						}
 						direction.negate();
 						other_sphere.acceleration.addScaledVector(direction, F / mass2)
 					}
@@ -272,6 +362,41 @@
 				return line;
 			};
 			
+			function clearAll() {
+				while (spheres.length != 0) {
+					// Marginally faster to remove from end? IDK.
+					removeSphereByIdx(spheres.length - 1);
+				};
+			};
+			
+			function setZoom(zoom) {
+				camera.zoom = zoom;
+				camera.updateProjectionMatrix();
+				camera.updateScaledViewSize();
+				replaceOldGrid();
+			};
+			
+			function applyPreset(preset) {
+				var preset_builders = {
+					"solar_system": function() {
+						makeSphere(0, 0, 108).pinned = true;
+						setZoom(.1);
+					},
+					"binary": function() {
+						makeSphere(100,0, SIZE.MEDIUM, new THREE.Vector3(.007, .07405, 0));
+						makeSphere(-100,0, SIZE.MEDIUM, new THREE.Vector3(.007, -.07405, 0));
+					},
+					"tight_binary": function() {
+						makeSphere(20,0, SIZE.SMALL, new THREE.Vector3(.007, .0615, 0));
+						makeSphere(-20,0, SIZE.SMALL, new THREE.Vector3(.007, -.0615, 0));
+					},
+				};
+				clearAll();
+				moveCameraAbsolute(new THREE.Vector3(0, 0, 0));
+				setZoom(1);
+				onWindowResize();
+				preset_builders[preset]();
+			};
 			function main() {
 				$("#size_slider").slider({min: SIZE.SMALL,
 										  max: SIZE.LARGE,
@@ -286,10 +411,7 @@
 										 	$("#gravity_multiplier").val(ui.value);
 										 }});
 				$("#clear_button").click(function() {
-					while (spheres.length != 0) {
-						// Marginally faster to remove from end? IDK.
-						removeSphereByIdx(spheres.length - 1);
-					};
+					clearAll();
 				});
 				$("#unselect_button").click(function() {
 					unselectSelected();
@@ -307,6 +429,34 @@
 				});
 				$("#delete_button").click(function() {
 					removeSphereByIdx(findSphereIdxByUUID(clicked_sphere.uuid));
+				});
+				$("#apply_preset_button").click(function() {
+					var preset = $("#presets").val();
+					applyPreset(preset);
+				});
+				$("#follow_button").click(function() {
+					if (!clicked_sphere.camera_pinned) {
+						if (camera_following_sphere) {
+							camera_following_sphere.camera_pinned = false;
+						}
+						camera_following_sphere = clicked_sphere;
+						camera_following_sphere.camera_pinned = true;
+					}
+					else {
+						moveCameraAbsolute(clicked_sphere.position);
+						clicked_sphere.camera_pinned = false;
+						camera_following_sphere = null;
+					}
+					updateFollowButtonText(clicked_sphere.camera_pinned);
+				});
+				$("#reset_camera_button").click(function() {
+					moveCameraAbsolute(new THREE.Vector3());
+					setZoom(1);
+					if (camera_following_sphere) {
+						camera_following_sphere.camera_pinned = false;
+						camera_following_sphere = false;
+						updateFollowButtonText(false);
+					}
 				});
 				scene = new THREE.Scene();
 				canvas_width = window.innerWidth;
@@ -366,14 +516,11 @@
 					var delta = Math.max(-1, Math.min(1, (e.originalEvent.wheelDelta || -e.originalEvent.detail)));
 					var scroll = .2;
 					if(delta > 0) {
-						camera.zoom *= 1 + scroll;
+						setZoom(camera.zoom * (1 + scroll));
 					}
 					else{
-						camera.zoom *= 1 - scroll;
+						setZoom(camera.zoom * (1 - scroll));
 					}
-					camera.updateProjectionMatrix();
-					camera.updateScaledViewSize();
-					replaceOldGrid();
 				});
 				$("canvas").mousedown(function(e) {
 					switch (e.which) {
@@ -383,7 +530,7 @@
 							start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 							starting_sphere_uuid = findContainingSphereUUID(start_mouse_world_coords);
 							break;
-						case 2:
+						case 3:
 							e.preventDefault();
 							right_down = true;
 							start_right_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
@@ -403,10 +550,13 @@
 						return;
 					}
 					if (is_dragging) {
+						if (camera_following_sphere) {
+							camera_following_sphere.camera_pinned = false;
+							camera_following_sphere = false;
+							updateFollowButtonText(false);
+						}
 						new_coords.negate();
-						camera.position.add(new_coords);
-						grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
-						grid.position.setY(((camera.position.y / grid.step) | 0) * grid.step);
+						moveCameraRelative(new_coords);
 					}
 				 })
 				.mouseup(function(e) {
@@ -436,7 +586,8 @@
 								}
 							}
 							break;
-						case 2:
+						case 3:
+							e.preventDefault();
 							right_down = false;
 							var end_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
 							end_coords.sub(start_right_world_coords); // create velocity vector
@@ -462,23 +613,40 @@
 			$(main);
 		</script>
 		<div id="info_pane" style="display:none">
-			<div>Position: <span id="selected_position"></span></div>
-			<div>Velocity: <span id="selected_velocity"></span></div>
-			<div>Acceleration: <span id="selected_acceleration"></span></div>
-			<button id="unselect_button">Unselect</button>
-			<button id="pin_button">Pin</button>
-			<button id="delete_button">Delete</button>
+			<div class="white_black_outline"><strong class="white_black_outline">Size:</strong> <span id="selected_size"></span></div>
+			<div class="white_black_outline"><strong>Position:</strong> <span id="selected_position"></span></div>
+			<div class="white_black_outline"><strong>Velocity:</strong> <span id="selected_velocity_dir" class="glyphicon glyphicon-arrow-up"></span><span id="selected_velocity"></span></div>
+			<div class="white_black_outline"><strong>Acceleration:</strong> <span id="selected_acceleration_dir" class="glyphicon glyphicon-arrow-up"></span><span id="selected_acceleration"></span></div>
+			<button type="button" class="btn btn-secondary" id="unselect_button">Unselect</button>
+			<button type="button" class="btn btn-secondary" id="pin_button">Pin</button>
+			<button type="button" class="btn btn-secondary" id="follow_button">Follow</button>
+			<button type="button" class="btn btn-danger" id="delete_button">Delete</button>
+		</div>
+		<div id="camera_info_pane">
+			<span class="white_black_outline"><strong>Camera Position:</strong> <span id="camera_position"></span></span>
+			<div class="headerDivider"></div>
+			<span class="white_black_outline"><strong>Camera Zoom:</strong> <span id="camera_zoom"></span></span>
+			<div class="headerDivider"></div>
+			<button type="button" class="btn btn-sm btn-secondary" id="reset_camera_button">Reset Camera</button>
 		</div>
 		<div id="controls">
-			<span>Particle Size</span>
+			<span class="white_black_outline" style="margin-left:2px"><strong>Particle Size</strong></span>
 			<div id="size_slider"></div>
-			<input id="particle_size" type="text" size="1" value="20">
+			<input type="text" id="particle_size" class="form-control" style="width: auto" type="text" size="1" value="20">
 			<div class="headerDivider"></div>
-			<span>Gravity Multiplier</span>
+			<span class="white_black_outline"><strong>Gravity Multiplier</strong></span>
 			<div id="gravity_multiplier_slider"></div>
-			<input id="gravity_multiplier" type="text" size="1" value="1">
+			<input type="text" id="gravity_multiplier" class="form-control" style="width: auto" type="text" size="1" value="1">
 			<div class="headerDivider"></div>
-			<button id="clear_button">Clear</button>
+			<span class="white_black_outline"><strong>Presets</strong></span>
+			<select id="presets" class="c-select">
+				<option value="binary">Binary System</option>
+				<option value="tight_binary">Tight Binary System</option>
+				<option value="solar_system">Solar System</option>
+			</select>
+			<button type="button" class="btn btn-sm btn-secondary" id="apply_preset_button">Apply</button>
+			<div class="headerDivider"></div>
+			<button type="button" class="btn btn-sm btn-danger" id="clear_button">Clear All</button>
 		</div>
 	</body>
 </html>
