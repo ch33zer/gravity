@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset=utf-8>
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>GRAVITY</title>
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ==" crossorigin="anonymous">
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap-theme.min.css" integrity="sha384-aUGj/X2zp5rLCbBxumKTCw2Z50WgIr1vs/PFN4praOTvYXWlVyh2UtNUU0KAUhAX" crossorigin="anonymous">
+		<style>
+			body { margin: 0; background-color: black; overflow: hidden;}
+			canvas { width: 100%; height: 100% }
+			button { margin: 2px }
+			.white_black_outline {
+				color: white;
+				text-shadow:
+				   -1px -1px 0 #000,
+					1px -1px 0 #000,
+					-1px 1px 0 #000,
+					1px 1px 0 #000;  
+			}
+			#controls {
+				position: absolute;
+				width: 100%;
+				bottom: 0px;
+				display:flex;
+				align-items:center
+			}
+			#camera_info_pane {
+				position: absolute;
+				bottom: 40px;
+				display:flex;
+				align-items:center
+			}
+			#info_pane {
+				position: absolute;
+				border-radius: 2px;
+				top: -2px;
+				display:flex;
+				flex-direction: column
+			}
+			.ui-slider {
+				display: inline-block;
+				margin: 10px;
+				width: 10%;
+			}
+			.headerDivider {
+				border-left:1px solid #ccc; 
+				border-right:1px solid #ccc;
+				height:25px;
+				margin-left:5px;
+				margin-right:5px;
+			}
+		</style>
+		<link rel="stylesheet" href="jquery-ui.css" />
+	</head>
+	<body oncontextmenu="return false;">
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+		<script src="jquery-ui.js"></script>
+		<script src="three.min.js"></script>
+		<script>
+			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, scaled_view_width, scaled_view_height, spheres, grid, clicked_sphere, camera_following_sphere;
+			var SIZE = {
+				LARGE: 30,
+				MEDIUM: 20,
+				SMALL: 10,
+			};
+			var G = 6.67408e-11;
+			function makeTrail(color, startpos, endpos) {
+				geometry = new THREE.Geometry();
+				geometry.vertices.push(new THREE.Vector3(startpos.x, startpos.y, startpos.z));
+				geometry.vertices.push(new THREE.Vector3(endpos.x, endpos.y, endpos.z));
+				material = new THREE.LineBasicMaterial({ color: color, opacity: .1 });
+				return new THREE.LineSegments(geometry, material);
+			};
+			function makeSphere(x, y, size, vel) {
+				var colour = Math.floor(Math.random() * 16777215);
+				var geometry = new THREE.SphereGeometry(size, 32, 32);
+				var material = new THREE.MeshPhongMaterial( {color: 0x132CA9 , specular: 0xffffff, shininess: 50} );
+				var sphere = new THREE.Mesh( geometry, material );
+				sphere.radius = size;
+				sphere.velocity = vel || new THREE.Vector3();
+				sphere.acceleration = new THREE.Vector3();
+				sphere.is_selected = false;
+				sphere.camera_pinned = false;
+				sphere.pinned = false;
+				sphere.trails = [];
+				sphere.translateX(x);
+				sphere.translateY(y);
+				sphere.translateZ(-1);
+				spheres.push(sphere);
+				scene.add(sphere);
+				sphere.debugString = function() {
+					console.log("Sphere<position:", sphere.position, ",velocity:",sphere.velocity, ",acceleration:", sphere.acceleration, ">");
+				};
+				sphere.trail_color = colour;
+				sphere.last_trail_pos = new THREE.Vector3();
+				sphere.last_trail_pos.copy(sphere.position);
+				return sphere;
+			};
+			function makeSphereFromCoords(coords, size) {
+				return makeSphere(coords.x, coords.y, size);
+			}
+			function makeSphereFromCoordsWithVelocity(coords, size, velocity){
+				return makeSphere(coords.x, coords.y, size, velocity);
+			};
+			function removeSphereByIdx(idx) {
+				for (var i = 0; i < spheres[idx].trails.length; ++i) {
+						scene.remove(spheres[idx].trails[i]);
+				}
+				if (spheres[idx].is_selected) {
+					unselectSelected();
+				}
+				scene.remove(spheres[idx])
+				spheres.splice(idx, 1);
+			};
+			function unselectSphere(sphere) {
+				sphere.is_selected = false;
+				sphere.material.color.setHex(0x132CA9);
+				if (clicked_sphere && clicked_sphere.uuid === sphere.uuid) {
+					$("#info_pane").toggle(false);
+				}
+			};
+			function unselectSelected() {
+				if (clicked_sphere) {
+					unselectSphere(clicked_sphere);
+					clicked_sphere = null;
+				}
+			};
+			function updatePinButtonText(is_pinned) {
+				if (is_pinned) {
+					$("#pin_button").text("Unpin");
+				}
+				else {
+					$("#pin_button").text("Pin");
+				}
+			};
+			function updateFollowButtonText(is_following) {
+				if (is_following) {
+					$("#follow_button").text("Unfollow");
+				}
+				else {
+					$("#follow_button").text("Follow");
+				}
+			};
+			function selectSphere(sphere) {
+				sphere.is_selected = true;
+				sphere.material.color.setHex(0xB00000);
+				$("#info_pane").toggle(true);
+				clicked_sphere = sphere;
+				updatePinButtonText(sphere.pinned);
+				updateFollowButtonText(sphere.camera_pinned);
+			};
+			function findSphereIdxByUUID(uuid) {
+				for (var i = 0; i < spheres.length; ++i) {
+					var curr_sphere = spheres[i];
+					if (curr_sphere.uuid == uuid) {
+						return i;
+					}
+				}
+				return -1;
+			};
+			function findSphereByUUID(uuid) {
+				return spheres[findSphereIdxByUUID(uuid)];
+			}
+			function moveCameraRelative(new_coords_rel) {
+				camera.position.add(new_coords_rel);
+				grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
+				grid.position.setY(((camera.position.y / grid.step) | 0) * grid.step);
+			};
+			function moveCameraAbsolute(new_coords) {
+				camera.position.copy(new_coords);
+				grid.position.setX(((camera.position.x / grid.step) | 0) * grid.step);
+				grid.position.setY(((camera.position.y / grid.step) | 0) * grid.step);
+			};
+			function replaceOldGrid() {
+				var new_grid = makeGrid();
+				new_grid.position.setX(((camera.position.x / new_grid.step) | 0) * new_grid.step);
+				new_grid.position.setY(((camera.position.y / new_grid.step) | 0) * new_grid.step);
+				scene.remove(grid);
+				scene.add(new_grid);
+				grid = new_grid;
+			};
+			function onWindowResize() {
+				canvas_width = window.innerWidth;
+				canvas_height = window.innerHeight;
+				aspect_ratio = canvas_width / canvas_height;
+				view_width = 1000;
+				view_height = view_width / aspect_ratio;
+				camera.top = view_height / 2;
+				camera.bottom = -view_height / 2;
+				camera.updateProjectionMatrix();
+				camera.updateScaledViewSize();
+				renderer.setSize(canvas_width, canvas_height);
+				replaceOldGrid();
+			};
+			function massFromRadius(sphere) {
+				var density = 1000000;
+				return 4/3.0 * Math.PI * sphere.radius * sphere.radius * sphere.radius * density;
+			};
+			function update(delta) {
+				moveSpheres(delta);
+				function fmt_num(num) {
+					var is_negative = num < 0;
+					var rep = num.toFixed(2);
+					if (num !== 0 && (rep === "0.00" || rep === "-0.00")) {
+						rep = "<0.01";
+					}
+					if (rep.length < 8) {
+						var pad = "        ";
+						rep = pad.substring(0, pad.length - rep.length) + rep;
+					}
+					
+					return rep;
+				};
+				function fmt_vec(vec) {
+					return "(" + fmt_num(vec.x) + "," + fmt_num(vec.y) + ")";
+				};
+				$("#camera_position").text(fmt_vec(camera.position));
+				$("#camera_zoom").text(fmt_num(camera.zoom));
+
+				if (clicked_sphere && clicked_sphere.is_selected) {
+					function angle_from_up(vec) {
+						var up = new THREE.Vector3(0,1,0);
+						var normalized = new THREE.Vector3();
+						normalized.copy(vec);
+						normalized.setZ(0);
+						normalized.normalize();
+
+						var theta = normalized.dot(up); // Both lengths are 1, no need to normalize.
+						var rot = Math.acos(THREE.Math.clamp(theta, -1, 1));
+						if (normalized.x < 0) {
+							rot = Math.PI * 2 - rot;
+						}
+						return rot;
+					};
+					$("#selected_size").text(clicked_sphere.radius);
+					$("#selected_position").text(fmt_vec(clicked_sphere.position));
+					var vel_len = clicked_sphere.velocity.length();
+					if (vel_len === 0) {
+						$("#selected_velocity_dir").toggle(false);
+					}
+					else {
+						$("#selected_velocity_dir").toggle(true);
+						$("#selected_velocity_dir").css({transform: 'rotateZ(' + (angle_from_up(clicked_sphere.velocity)) + 'rad)'});
+					}
+					$("#selected_velocity").text(fmt_num(vel_len));
+					var acc_len = clicked_sphere.acceleration.length();
+					if (acc_len === 0) {
+						$("#selected_acceleration_dir").toggle(false);
+					}
+					else {
+						$("#selected_acceleration_dir").toggle(true);
+						$("#selected_acceleration_dir").css({transform: 'rotateZ(' + (angle_from_up(clicked_sphere.acceleration)) + 'rad)'});
+					}
+					$("#selected_acceleration").text(fmt_num(clicked_sphere.acceleration.length()));
+
+
+				}
+				if (camera_following_sphere && camera_following_sphere.camera_pinned) {
+					moveCameraAbsolute(camera_following_sphere.position);
+				}
+			};
+			function moveSpheres(delta) {
+				var gravity_multiplier = parseInt($("#gravity_multiplier").val(), 10);
+				var to_remove = Object.create(null);
+				var to_add = [];
+				function scheduleAdd(x, y, size) {
+					to_add.push({x: x, y: y, size: size})
+				};
+				function scheduleRemoval(idx) {
+					to_remove[idx] = true;
+				};
+				for (var i = 0; i < spheres.length; i++) {
+					var curr_sphere = spheres[i];
+					if (i in to_remove) {
+						continue;
+					}
+					if (i === 0) {
+						curr_sphere.acceleration.set(0, 0, 0);
+					}
+					var mass1 = massFromRadius(curr_sphere);
+					for (var j = i + 1; j < spheres.length; j++) {
+						var other_sphere = spheres[j];
+						var mass2 = massFromRadius(other_sphere);
+						if (i == 0) {
+							other_sphere.acceleration.set(0, 0, 0);
+						}
+						var seperating_dist_squared = curr_sphere.position.distanceToSquared(other_sphere.position);
+						if (seperating_dist_squared < Math.pow(curr_sphere.radius + other_sphere.radius, 2)*0.5) {
+							var remove_other = true;
+							if (!curr_sphere.pinned) {
+								if (curr_sphere.radius < other_sphere.radius) {
+									remove_other = false;
+								}
+								if (curr_sphere.radius === other_sphere.radius) {
+									var curr_velocity = curr_sphere.velocity.length();
+									var other_velocity = other_sphere.velocity.length();
+									if (curr_velocity < other_velocity) {
+										remove_other = false;
+									}																	
+								}
+							}
+							scheduleRemoval(remove_other ? j : i);
+							continue;
+						}
+						var F = gravity_multiplier * G * mass1 * mass2 / seperating_dist_squared;
+						var direction = new THREE.Vector3();
+						direction.copy(other_sphere.position);
+						direction.sub(curr_sphere.position);
+						direction.normalize();
+						if (!curr_sphere.pinned) {
+							curr_sphere.acceleration.addScaledVector(direction, F / mass1)
+						}
+						direction.negate();
+						other_sphere.acceleration.addScaledVector(direction, F / mass2)
+					}
+					if (!curr_sphere.pinned) {
+						curr_sphere.position.addScaledVector(curr_sphere.velocity, delta).addScaledVector(curr_sphere.acceleration, .5 * delta * delta);
+						curr_sphere.velocity.addScaledVector(curr_sphere.acceleration, delta);
+					}
+					if (curr_sphere.last_trail_pos.distanceToSquared(curr_sphere.position) > 5) {
+						var start = new THREE.Vector3();
+						start.copy(curr_sphere.last_trail_pos);
+						var end = new THREE.Vector3();
+						end.copy(curr_sphere.position);
+						var trail = makeTrail(curr_sphere.trail_color, start, end);
+						scene.add(trail);
+						curr_sphere.trails.push(trail);
+						if (curr_sphere.trails.length > 500) {
+							scene.remove(curr_sphere.trails.shift());
+						}
+						curr_sphere.last_trail_pos.copy(curr_sphere.position);
+					}
+				}
+				for (var idx in to_remove) {
+					removeSphereByIdx(idx);
+				}
+				for (var i = 0; i < to_add.length; i++) {
+					var addition = to_add[i];
+					makeSphere(addition.x, addition.y, addition.size);
+				}
+			};
+			
+			function makeGrid() {
+				var geometry = new THREE.Geometry();
+				var material = new THREE.LineBasicMaterial({ color: 0x2C2C2C, opacity: .1 });
+				var size = Math.max(scaled_view_height, scaled_view_width) / 2;
+				var max_grid_lines_on_screen = 20;
+				var step = Math.max(100, ((size * 2 / 100 / max_grid_lines_on_screen) | 0) * 100);
+				size = ((size / step) | 0) * step;
+				size += 2 * step;
+				for (var i = - size; i <= size; i += step) {
+					geometry.vertices.push(new THREE.Vector3(-size, i, -100));
+					geometry.vertices.push(new THREE.Vector3(size, i, -100));
+
+					geometry.vertices.push(new THREE.Vector3( i, -size, -100));
+					geometry.vertices.push(new THREE.Vector3( i, size, -100));
+				}
+				var line = new THREE.LineSegments( geometry, material);
+				line.step = step;
+				return line;
+			};
+			
+			function clearAll() {
+				while (spheres.length != 0) {
+					// Marginally faster to remove from end? IDK.
+					removeSphereByIdx(spheres.length - 1);
+				};
+			};
+			
+			function setZoom(zoom) {
+				camera.zoom = zoom;
+				camera.updateProjectionMatrix();
+				camera.updateScaledViewSize();
+				replaceOldGrid();
+			};
+			
+			function applyPreset(preset) {
+				var preset_builders = {
+					"solar_system": function() {
+						makeSphere(0, 0, 108).pinned = true;
+						setZoom(.1);
+					},
+					"binary": function() {
+						makeSphere(100,0, SIZE.MEDIUM, new THREE.Vector3(.007, .07405, 0));
+						makeSphere(-100,0, SIZE.MEDIUM, new THREE.Vector3(.007, -.07405, 0));
+					},
+					"tight_binary": function() {
+						makeSphere(20,0, SIZE.SMALL, new THREE.Vector3(.007, .0615, 0));
+						makeSphere(-20,0, SIZE.SMALL, new THREE.Vector3(.007, -.0615, 0));
+					},
+				};
+				clearAll();
+				moveCameraAbsolute(new THREE.Vector3(0, 0, 0));
+				setZoom(1);
+				onWindowResize();
+				preset_builders[preset]();
+			};
+			function main() {
+				$("#size_slider").slider({min: SIZE.SMALL,
+										  max: SIZE.LARGE,
+										  value:SIZE.MEDIUM,
+										  slide: function(e, ui) {
+										 	$("#particle_size").val(ui.value);
+										 }});
+				$("#gravity_multiplier_slider").slider({min: -10,
+										  max: 10,
+										  value: 1,
+										  slide: function(e, ui) {
+										 	$("#gravity_multiplier").val(ui.value);
+										 }});
+				$("#clear_button").click(function() {
+					clearAll();
+				});
+				$("#unselect_button").click(function() {
+					unselectSelected();
+				});
+				$("#pin_button").click(function() {
+					if (!clicked_sphere.pinned) {
+						clicked_sphere.pinned = true;
+						clicked_sphere.velocity.set(0, 0, 0);
+						clicked_sphere.acceleration.set(0, 0, 0);
+					}
+					else {
+						clicked_sphere.pinned = false;
+					}
+					updatePinButtonText(clicked_sphere.pinned);
+				});
+				$("#delete_button").click(function() {
+					removeSphereByIdx(findSphereIdxByUUID(clicked_sphere.uuid));
+				});
+				$("#apply_preset_button").click(function() {
+					var preset = $("#presets").val();
+					applyPreset(preset);
+				});
+				$("#follow_button").click(function() {
+					if (!clicked_sphere.camera_pinned) {
+						if (camera_following_sphere) {
+							camera_following_sphere.camera_pinned = false;
+						}
+						camera_following_sphere = clicked_sphere;
+						camera_following_sphere.camera_pinned = true;
+					}
+					else {
+						moveCameraAbsolute(clicked_sphere.position);
+						clicked_sphere.camera_pinned = false;
+						camera_following_sphere = null;
+					}
+					updateFollowButtonText(clicked_sphere.camera_pinned);
+				});
+				$("#reset_camera_button").click(function() {
+					moveCameraAbsolute(new THREE.Vector3());
+					setZoom(1);
+					if (camera_following_sphere) {
+						camera_following_sphere.camera_pinned = false;
+						camera_following_sphere = false;
+						updateFollowButtonText(false);
+					}
+				});
+				scene = new THREE.Scene();
+				canvas_width = window.innerWidth;
+				canvas_height = window.innerHeight;
+				aspect_ratio = canvas_width / canvas_height;
+				spheres = [];
+				view_width = 1000;
+				view_height = view_width / aspect_ratio;
+				scaled_view_width = view_width;
+				scaled_view_height = view_height;
+				camera = new THREE.OrthographicCamera( -view_width / 2, view_width / 2, view_height / 2, -view_height / 2, -1000, 1000 );				
+				camera.updateScaledViewSize = function() {
+					scaled_view_height = view_height / camera.zoom;
+					scaled_view_width = view_width / camera.zoom;
+				};
+				renderer = new THREE.WebGLRenderer( {antialias: true} );
+				renderer.setSize( canvas_width, canvas_height );
+				renderer.domElement.id = "canvas";
+				document.body.appendChild( renderer.domElement );
+
+				var light = new THREE.DirectionalLight( 0xffffff, 1 );
+				light.position.set(1,1, -1);
+				scene.add( light );
+				light = new THREE.AmbientLight( 0x404040 );
+				scene.add(light);
+				
+				makeSphere(100, 100, SIZE.MEDIUM);
+				grid = makeGrid();
+				scene.add(grid);
+
+				var mouse_down = false;
+				var right_down = false;
+				var is_dragging = false;
+				var start_mouse_world_coords;
+				var start_right_world_coords;
+				var end_right_world_coords;
+				// "" if not started in a sphere.
+				var starting_sphere_uuid;
+				function findContainingSphereUUID(world_coords) {
+					var target_point = new THREE.Vector3();
+					target_point.copy(world_coords);
+					target_point.setZ(-1);
+					for (var i = 0; i < spheres.length; i++) {
+						var curr_sphere = spheres[i];
+						if (target_point.distanceTo(curr_sphere.position) < curr_sphere.radius) {
+							return curr_sphere.uuid;
+						}
+					}
+					return "";
+				};
+				function pageCoordToWorldCoord(x, y) {
+					var world_coords = new THREE.Vector3(((x / canvas_width) * scaled_view_width) - scaled_view_width / 2, ((-y / canvas_height) * scaled_view_height) + scaled_view_height / 2, 0);
+					world_coords.add(camera.position);
+					return world_coords;
+				};
+				$("canvas").bind('mousewheel DOMMouseScroll', function(e) {
+					var delta = Math.max(-1, Math.min(1, (e.originalEvent.wheelDelta || -e.originalEvent.detail)));
+					var scroll = .2;
+					if(delta > 0) {
+						setZoom(camera.zoom * (1 + scroll));
+					}
+					else{
+						setZoom(camera.zoom * (1 - scroll));
+					}
+				});
+				$("canvas").mousedown(function(e) {
+					switch (e.which) {
+						case 1:
+							e.preventDefault();
+							mouse_down = true;
+							start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+							starting_sphere_uuid = findContainingSphereUUID(start_mouse_world_coords);
+							break;
+						case 3:
+							e.preventDefault();
+							right_down = true;
+							start_right_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+							break;
+						default:
+					}
+				})
+				.mousemove(function(e) {
+					if (!mouse_down) {
+						return;
+					}
+					var new_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+					new_coords.sub(start_mouse_world_coords);
+					if (!is_dragging && new_coords.lengthSq() > 1000) {
+						is_dragging = true;
+						start_mouse_world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+						return;
+					}
+					if (is_dragging) {
+						if (camera_following_sphere) {
+							camera_following_sphere.camera_pinned = false;
+							camera_following_sphere = false;
+							updateFollowButtonText(false);
+						}
+						new_coords.negate();
+						moveCameraRelative(new_coords);
+					}
+				 })
+				.mouseup(function(e) {
+					switch (e.which) {
+						case 1:
+							var was_dragging = is_dragging;
+							var old_starting_sphere_uuid = starting_sphere_uuid;
+							starting_sphere_uuid = "";
+							mouse_down = false;
+							is_dragging = false;
+
+							if (was_dragging) {
+								;
+							} else {
+								var world_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+								if (old_starting_sphere_uuid != "" && old_starting_sphere_uuid === findContainingSphereUUID(world_coords)) {
+									if (clicked_sphere && old_starting_sphere_uuid == clicked_sphere.uuid) {
+										unselectSelected();
+									} else {
+										unselectSelected();
+										clicked_sphere = findSphereByUUID(old_starting_sphere_uuid);
+										selectSphere(clicked_sphere);
+									}
+								}
+								else {
+									makeSphereFromCoords(world_coords, parseInt($("#particle_size").val(), 10));
+								}
+							}
+							break;
+						case 3:
+							e.preventDefault();
+							right_down = false;
+							var end_coords = pageCoordToWorldCoord(e.pageX, e.pageY);
+							end_coords.sub(start_right_world_coords); // create velocity vector
+							end_coords.multiplyScalar(0.005); // scale velocity to human visable speed
+							makeSphereFromCoordsWithVelocity(start_right_world_coords,
+											 parseInt($("#particle_size").val(), 10),
+											 end_coords);
+							break;
+						default:
+					}
+				});
+				$(window).resize(onWindowResize);
+				var last_time = Date.now();
+				function render() {
+					requestAnimationFrame( render );
+					var new_time = Date.now();
+					update(new_time - last_time);
+					last_time = new_time;
+					renderer.render(scene, camera );
+				}
+				render();
+			};
+			$(main);
+		</script>
+		<div id="info_pane" style="display:none">
+			<div class="white_black_outline"><strong class="white_black_outline">Size:</strong> <span id="selected_size"></span></div>
+			<div class="white_black_outline"><strong>Position:</strong> <span id="selected_position"></span></div>
+			<div class="white_black_outline"><strong>Velocity:</strong> <span id="selected_velocity_dir" class="glyphicon glyphicon-arrow-up"></span><span id="selected_velocity"></span></div>
+			<div class="white_black_outline"><strong>Acceleration:</strong> <span id="selected_acceleration_dir" class="glyphicon glyphicon-arrow-up"></span><span id="selected_acceleration"></span></div>
+			<button type="button" class="btn btn-secondary" id="unselect_button">Unselect</button>
+			<button type="button" class="btn btn-secondary" id="pin_button">Pin</button>
+			<button type="button" class="btn btn-secondary" id="follow_button">Follow</button>
+			<button type="button" class="btn btn-danger" id="delete_button">Delete</button>
+		</div>
+		<div id="camera_info_pane">
+			<span class="white_black_outline"><strong>Camera Position:</strong> <span id="camera_position"></span></span>
+			<div class="headerDivider"></div>
+			<span class="white_black_outline"><strong>Camera Zoom:</strong> <span id="camera_zoom"></span></span>
+			<div class="headerDivider"></div>
+			<button type="button" class="btn btn-sm btn-secondary" id="reset_camera_button">Reset Camera</button>
+		</div>
+		<div id="controls">
+			<span class="white_black_outline" style="margin-left:2px"><strong>Particle Size</strong></span>
+			<div id="size_slider"></div>
+			<input type="text" id="particle_size" class="form-control" style="width: auto" type="text" size="1" value="20">
+			<div class="headerDivider"></div>
+			<span class="white_black_outline"><strong>Gravity Multiplier</strong></span>
+			<div id="gravity_multiplier_slider"></div>
+			<input type="text" id="gravity_multiplier" class="form-control" style="width: auto" type="text" size="1" value="1">
+			<div class="headerDivider"></div>
+			<span class="white_black_outline"><strong>Presets</strong></span>
+			<select id="presets" class="c-select">
+				<option value="binary">Binary System</option>
+				<option value="tight_binary">Tight Binary System</option>
+				<option value="solar_system">Solar System</option>
+			</select>
+			<button type="button" class="btn btn-sm btn-secondary" id="apply_preset_button">Apply</button>
+			<div class="headerDivider"></div>
+			<button type="button" class="btn btn-sm btn-danger" id="clear_button">Clear All</button>
+		</div>
+	</body>
+</html>
