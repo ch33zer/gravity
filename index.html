@@ -37,7 +37,8 @@
 				border-radius: 2px;
 				top: -2px;
 				display:flex;
-				flex-direction: column
+				flex-direction: column;
+				width: 250px;
 			}
 			.ui-slider {
 				display: inline-block;
@@ -52,11 +53,11 @@
 				margin-right:5px;
 			}
 		</style>
-		<link rel="stylesheet" href="jquery-ui.css" />
+		<link rel="stylesheet" href="https://code.jquery.com/ui/1.11.4/themes/smoothness/jquery-ui.css" />
 	</head>
 	<body oncontextmenu="return false;">
 		<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
-		<script src="jquery-ui.js"></script>
+		<script src="https://code.jquery.com/ui/1.11.4/jquery-ui.min.js"></script>
 		<script src="three.min.js"></script>
 		<script>
 			var scene, camera, renderer, canvas_width, canvas_height, aspect_ratio, view_width, view_height, scaled_view_width, scaled_view_height, spheres, grid, clicked_sphere, camera_following_sphere;
@@ -604,7 +605,7 @@
 				function render() {
 					requestAnimationFrame( render );
 					var new_time = Date.now();
-					update(new_time - last_time);
+					update(Math.min(17, new_time - last_time));
 					last_time = new_time;
 					renderer.render(scene, camera );
 				}
